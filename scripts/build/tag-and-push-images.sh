@@ -3,21 +3,22 @@ set -e
 
 # Tag and push Harbor ARM64 images to registries
 # This script tags and pushes built Harbor images to Docker Hub and GHCR
-# Usage: ./tag-and-push-images.sh <version> <docker_username> <github_repo_owner>
+# Usage: ./tag-and-push-images.sh <version> <docker_username> <github_repo_owner> [tag_latest]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../common.sh"
 
 # Check arguments
 if [ $# -lt 3 ]; then
-    log_error "Usage: $0 <version> <docker_username> <github_repo_owner>"
-    log_info "Example: $0 v2.11.0 myusername myorg"
+    log_error "Usage: $0 <version> <docker_username> <github_repo_owner> [tag_latest]"
+    log_info "Example: $0 v2.11.0 myusername myorg false"
     exit 1
 fi
 
 VERSION=$1
 DOCKER_USERNAME=$2
 GITHUB_REPO_OWNER=$3
+TAG_LATEST=${4:-false}
 VERSION_TAG=$(clean_version_tag "$VERSION")
 
 start_timer
@@ -27,6 +28,7 @@ log_info "Version: $VERSION"
 log_info "Version Tag: $VERSION_TAG"
 log_info "Docker Username: $DOCKER_USERNAME"
 log_info "GitHub Repo Owner: $GITHUB_REPO_OWNER"
+log_info "Update latest tag: $TAG_LATEST"
 
 # List built images to understand naming
 log_section "Built Images"
@@ -58,20 +60,23 @@ for component in "${HARBOR_COMPONENTS[@]}"; do
 
         # Tag for Docker Hub with -arm64 suffix
         DOCKERHUB_IMAGE_VERSIONED="${DOCKER_USERNAME}/harbor-${component}${IMAGE_SUFFIX}:${VERSION_TAG}"
-        DOCKERHUB_IMAGE_LATEST="${DOCKER_USERNAME}/harbor-${component}${IMAGE_SUFFIX}:latest"
         docker tag ${SOURCE_IMAGE} ${DOCKERHUB_IMAGE_VERSIONED}
-        docker tag ${SOURCE_IMAGE} ${DOCKERHUB_IMAGE_LATEST}
 
         # Tag for GHCR
         GHCR_IMAGE_VERSIONED="$(get_ghcr_image_reference ${GITHUB_REPO_OWNER} ${component} ${VERSION_TAG})"
-        GHCR_IMAGE_LATEST="${REGISTRY_GHCR}/${GITHUB_REPO_OWNER}/harbor-${component}${IMAGE_SUFFIX}:latest"
         docker tag ${SOURCE_IMAGE} ${GHCR_IMAGE_VERSIONED}
-        docker tag ${SOURCE_IMAGE} ${GHCR_IMAGE_LATEST}
+
+        if [ "$TAG_LATEST" = "true" ]; then
+            DOCKERHUB_IMAGE_LATEST="${DOCKER_USERNAME}/harbor-${component}${IMAGE_SUFFIX}:latest"
+            GHCR_IMAGE_LATEST="${REGISTRY_GHCR}/${GITHUB_REPO_OWNER}/harbor-${component}${IMAGE_SUFFIX}:latest"
+            docker tag ${SOURCE_IMAGE} ${DOCKERHUB_IMAGE_LATEST}
+            docker tag ${SOURCE_IMAGE} ${GHCR_IMAGE_LATEST}
+        fi
 
         # Push to Docker Hub with retry
         log_info "Pushing to Docker Hub..."
         if docker_push_retry ${DOCKERHUB_IMAGE_VERSIONED} && \
-           docker_push_retry ${DOCKERHUB_IMAGE_LATEST}; then
+           { [ "$TAG_LATEST" != "true" ] || docker_push_retry ${DOCKERHUB_IMAGE_LATEST}; }; then
             log_success "Pushed ${component} to Docker Hub"
         else
             log_warning "Failed to push ${component} to Docker Hub"
@@ -80,7 +85,7 @@ for component in "${HARBOR_COMPONENTS[@]}"; do
         # Push to GHCR with retry
         log_info "Pushing to GHCR..."
         if docker_push_retry ${GHCR_IMAGE_VERSIONED} && \
-           docker_push_retry ${GHCR_IMAGE_LATEST}; then
+           { [ "$TAG_LATEST" != "true" ] || docker_push_retry ${GHCR_IMAGE_LATEST}; }; then
             log_success "Pushed ${component} to GHCR"
         else
             log_warning "Failed to push ${component} to GHCR"

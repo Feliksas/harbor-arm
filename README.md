@@ -105,10 +105,10 @@ Latest: **v2.15.1**
 ## How It Works
 
 1. **Daily Checks**: GitHub Actions runs daily at 00:00 UTC
-2. **Release Detection**: Checks for new Harbor releases via GitHub API
+2. **Release Detection**: Checks official `goharbor/harbor-core` image tags for the highest stable Harbor version
 3. **Automated Build**: Triggers ARM64-native build on ubuntu-24.04-arm runners
 4. **Comprehensive Testing**: Validates architecture, runs integration tests, benchmarks
-5. **Multi-Registry Push**: Publishes to Docker Hub and GHCR
+5. **Multi-Registry Push**: Publishes versioned images to Docker Hub and GHCR; updates `latest` only for the highest stable Harbor image version
 6. **Version Tracking**: Updates `built_versions.txt` to prevent duplicate builds
 
 See [Architecture Documentation](docs/architecture.md) for technical details.

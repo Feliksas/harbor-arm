@@ -428,7 +428,7 @@ brew install shellcheck
 
 1. **Automated Release Detection**
    - Runs daily at 00:00 UTC
-   - Checks GitHub API for new Harbor releases
+   - Checks official `goharbor/harbor-core` image tags for the highest stable Harbor version
    - Skips if version already built
 
 2. **Build Execution**
@@ -437,7 +437,8 @@ brew install shellcheck
    - Comprehensive testing
 
 3. **Publishing**
-   - Tagged with version and `latest`
+   - Tagged with version
+   - Tagged as `latest` only when building the highest stable Harbor image version
    - Pushed to Docker Hub
    - Pushed to GHCR
 

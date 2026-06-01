@@ -14,52 +14,105 @@ on:
 
 env:
   HARBOR_REPO: goharbor/harbor
+  HARBOR_IMAGE_REPO: goharbor/harbor-core
 
 jobs:
   check-release:
     runs-on: ubuntu-latest
     outputs:
       should_build: ${{ steps.check.outputs.should_build }}
+      should_retag_latest: ${{ steps.check.outputs.should_retag_latest }}
       version: ${{ steps.check.outputs.version }}
+      should_tag_latest: ${{ steps.check.outputs.should_tag_latest }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
       - name: Check for new release
         id: check
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          # Get the latest release from Harbor
+          get_latest_harbor_image_version() {
+            local url="https://registry.hub.docker.com/v2/repositories/${{ env.HARBOR_IMAGE_REPO }}/tags?page_size=100"
+
+            while [ -n "${url}" ] && [ "${url}" != "null" ]; do
+              response=$(curl -fsSL "${url}")
+              jq -r '.results[].name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))' <<< "${response}"
+              url=$(jq -r '.next // empty' <<< "${response}")
+            done | sort -V | tail -n 1
+          }
+
+          HARBOR_IMAGE_VERSION=$(get_latest_harbor_image_version)
+
+          if ! grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' <<< "${HARBOR_IMAGE_VERSION}"; then
+            echo "::error::Unable to determine the latest stable Harbor image tag from ${{ env.HARBOR_IMAGE_REPO }}"
+            echo "Resolved image tag: ${HARBOR_IMAGE_VERSION:-<empty>}"
+            exit 1
+          fi
+
+          echo "Latest stable Harbor image tag: ${HARBOR_IMAGE_VERSION}"
+
+          # Get the Harbor version to build.
           if [ -n "${{ github.event.inputs.version }}" ]; then
             LATEST_VERSION="${{ github.event.inputs.version }}"
             echo "Using manually specified version: $LATEST_VERSION"
           else
-            RELEASE_RESPONSE=$(curl -fsSL \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "https://api.github.com/repos/${{ env.HARBOR_REPO }}/releases/latest")
-            LATEST_VERSION=$(jq -r '.tag_name // empty' <<< "${RELEASE_RESPONSE}")
-            echo "Latest Harbor release: $LATEST_VERSION"
+            LATEST_VERSION="${HARBOR_IMAGE_VERSION}"
           fi
 
           if ! grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$' <<< "${LATEST_VERSION}"; then
-            echo "::error::Unable to determine a valid Harbor release tag from releases/latest"
-            echo "Resolved release tag: ${LATEST_VERSION:-<empty>}"
+            echo "::error::Invalid Harbor version: ${LATEST_VERSION:-<empty>}"
             exit 1
           fi
+
+          if [ "${LATEST_VERSION}" = "${HARBOR_IMAGE_VERSION}" ]; then
+            SHOULD_TAG_LATEST=true
+          else
+            echo "Manual build is not the latest stable Harbor image tag; :latest will not be updated"
+            SHOULD_TAG_LATEST=false
+          fi
+
+          echo "should_tag_latest=${SHOULD_TAG_LATEST}" >> $GITHUB_OUTPUT
+
+          latest_tag_current=false
+          if [ "${SHOULD_TAG_LATEST}" = "true" ]; then
+            VERSION_TAG="${LATEST_VERSION#v}"
+            VERSION_IMAGE="ghcr.io/${{ github.repository_owner }}/harbor-core-arm64:${VERSION_TAG}"
+            LATEST_IMAGE="ghcr.io/${{ github.repository_owner }}/harbor-core-arm64:latest"
+
+            if docker manifest inspect --verbose "${VERSION_IMAGE}" > version-manifest.json 2>/dev/null; then
+              version_digest=$(jq -r '.Descriptor.digest // empty' version-manifest.json)
+              latest_digest=""
+
+              if docker manifest inspect --verbose "${LATEST_IMAGE}" > latest-manifest.json 2>/dev/null; then
+                latest_digest=$(jq -r '.Descriptor.digest // empty' latest-manifest.json)
+              fi
+
+              if [ -n "${version_digest}" ] && [ "${version_digest}" = "${latest_digest}" ]; then
+                latest_tag_current=true
+              fi
+            fi
+          fi
+
+          echo "latest_tag_current=${latest_tag_current}"
 
           # Check if we already built this version
           if [ -f "built_versions.txt" ]; then
             if grep -q "^${LATEST_VERSION}$" built_versions.txt; then
               echo "Version $LATEST_VERSION already built"
+              echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+              if [ "${SHOULD_TAG_LATEST}" = "true" ] && [ "${latest_tag_current}" != "true" ]; then
+                echo "Latest tag does not point at ${LATEST_VERSION}; retagging existing images"
+                echo "should_retag_latest=true" >> $GITHUB_OUTPUT
+              else
+                echo "should_retag_latest=false" >> $GITHUB_OUTPUT
+              fi
               echo "should_build=false" >> $GITHUB_OUTPUT
               exit 0
             fi
           fi
 
           echo "New version detected: $LATEST_VERSION"
+          echo "should_retag_latest=false" >> $GITHUB_OUTPUT
           echo "should_build=true" >> $GITHUB_OUTPUT
           echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
 
@@ -181,7 +234,47 @@ jobs:
           ../scripts/build/tag-and-push-images.sh \
             "${{ needs.check-release.outputs.version }}" \
             "${{ secrets.DOCKERHUB_USERNAME }}" \
-            "${{ github.repository_owner }}"
+            "${{ github.repository_owner }}" \
+            "${{ needs.check-release.outputs.should_tag_latest }}"
+
+  retag-latest:
+    needs: check-release
+    if: needs.check-release.outputs.should_retag_latest == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Retag latest images
+        run: |
+          VERSION="${{ needs.check-release.outputs.version }}"
+          VERSION_TAG="${VERSION#v}"
+          DOCKER_USERNAME="${{ secrets.DOCKERHUB_USERNAME }}"
+          GHCR_OWNER="${{ github.repository_owner }}"
+          COMPONENTS=(prepare core db jobservice log nginx portal redis registry registryctl exporter)
+
+          for component in "${COMPONENTS[@]}"; do
+            docker buildx imagetools create \
+              -t "${DOCKER_USERNAME}/harbor-${component}-arm64:latest" \
+              "${DOCKER_USERNAME}/harbor-${component}-arm64:${VERSION_TAG}"
+
+            docker buildx imagetools create \
+              -t "ghcr.io/${GHCR_OWNER}/harbor-${component}-arm64:latest" \
+              "ghcr.io/${GHCR_OWNER}/harbor-${component}-arm64:${VERSION_TAG}"
+          done
 
   validate-images:
     needs: [check-release, build-harbor]

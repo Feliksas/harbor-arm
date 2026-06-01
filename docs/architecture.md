@@ -48,7 +48,7 @@ harbor-arm/
 The CI/CD pipeline consists of 7 main jobs:
 
 ### 1. Check Release
-- Checks for new Harbor releases via GitHub API
+- Checks official `goharbor/harbor-core` image tags for the highest stable Harbor version
 - Compares with `built_versions.txt`
 - Outputs whether a build is needed
 
@@ -112,7 +112,7 @@ The CI/CD pipeline consists of 7 main jobs:
 5. **tag-and-push-images.sh**
    - Tags images with `-arm64` suffix
    - Pushes to Docker Hub and GHCR
-   - Creates `latest` tags
+   - Creates `latest` tags only when building the highest stable Harbor image version
 
 ### Test Phase (`scripts/test/`)
 
