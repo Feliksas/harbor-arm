@@ -9,14 +9,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../common.sh"
 
 # Check arguments
-if [ $# -lt 2 ]; then
-    log_error "Usage: $0 <version> <docker_username>"
-    log_info "Example: $0 v2.11.0 myusername"
+if [ $# -lt 1 ]; then
+    log_error "Usage: $0 <version>"
+    log_info "Example: $0 v2.11.0"
     exit 1
 fi
 
 VERSION=$1
-DOCKER_USERNAME=$2
 VERSION_TAG=$(clean_version_tag "$VERSION")
 
 start_timer
@@ -43,7 +42,6 @@ record_base_image_failure() {
 log_section "Building Base Images for ARM64"
 log_info "Version: $VERSION"
 log_info "Version Tag: $VERSION_TAG"
-log_info "Docker Username: $DOCKER_USERNAME"
 log_info "Architecture: $(uname -m)"
 
 # Verify we're in the Harbor directory
@@ -77,7 +75,6 @@ log_section "Building harbor-prepare-base:${VERSION}"
 # This prevents buildx from pulling remote AMD64 images
 docker build \
     -t goharbor/harbor-prepare-base:${VERSION} \
-    -t ${DOCKER_USERNAME}/harbor-prepare-base:${VERSION} \
     -f make/photon/prepare/Dockerfile.base \
     make/photon/prepare/
 
@@ -88,7 +85,6 @@ log_success "Successfully built harbor-prepare-base:${VERSION}"
 
 # Also tag with the exact version tag format Harbor expects
 docker tag goharbor/harbor-prepare-base:${VERSION} goharbor/prepare:${VERSION_TAG}
-docker tag goharbor/harbor-prepare-base:${VERSION} ${DOCKER_USERNAME}/prepare:${VERSION_TAG}
 
 # Build other base images if they exist
 log_section "Building Additional Base Images"
@@ -102,7 +98,6 @@ for base_dockerfile in $(find make/photon -name "Dockerfile.base" 2>/dev/null); 
 
         if docker build \
             -t goharbor/harbor-${component_name}-base:${VERSION} \
-            -t ${DOCKER_USERNAME}/harbor-${component_name}-base:${VERSION} \
             -f "$base_dockerfile" \
             "$component_dir/"; then
             log_success "Built base image for ${component_name}"

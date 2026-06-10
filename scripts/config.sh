@@ -22,6 +22,7 @@ HARBOR_COMPONENTS=(
     "registry"
     "registryctl"
     "exporter"
+    "trivy-adapter"
 )
 
 # Components supported by scripts/build-local.sh's generic Dockerfile builder.
@@ -57,6 +58,7 @@ declare -A HARBOR_IMAGE_NAMES=(
     ["registry"]="registry-photon"
     ["registryctl"]="harbor-registryctl"
     ["exporter"]="harbor-exporter"
+    ["trivy-adapter"]="harbor-trivy-adapter"
 )
 
 # Build configuration
