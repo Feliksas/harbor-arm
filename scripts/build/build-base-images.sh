@@ -44,6 +44,9 @@ log_info "Version: $VERSION"
 log_info "Version Tag: $VERSION_TAG"
 log_info "Architecture: $(uname -m)"
 
+log_info "Using main Photon image instead of legacy"
+grep -Rl '[0-9]\-legacy' ./make | xargs -L1 sed -i -e 's/\-legacy//g'
+
 # Verify we're in the Harbor directory
 verify_file "make/photon/prepare/Dockerfile.base"
 
