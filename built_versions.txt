@@ -1,11 +1,5 @@
 # Cleared for Phase 2 testing
 # Format: one version per line (e.g., v2.11.0)
 # This file tracks which Harbor versions have been built
-v2.13.5
-v2.14.0
-v2.14.1
-v2.14.2
-v2.14.3
-v2.14.4
-v2.15.0
 v2.15.1
+v2.15.2
