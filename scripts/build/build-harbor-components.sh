@@ -139,8 +139,8 @@ else
     record_component_failure "portal"
 fi
 
-# Build nginx, log, db, redis
-for component in nginx log db redis; do
+# Build nginx, log, db, valkey
+for component in nginx log db valkey; do
     if [ ! -d "make/photon/$component" ]; then
         log_warning "Component directory not found: $component"
         record_component_failure "$component"
@@ -152,7 +152,7 @@ for component in nginx log db redis; do
     # Determine output image name
     case $component in
         nginx) image_name="nginx-photon" ;;
-        redis) image_name="redis-photon" ;;
+        valkey) image_name="valkey-photon" ;;
         *) image_name="harbor-$component" ;;
     esac
 
