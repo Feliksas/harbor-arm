@@ -125,12 +125,24 @@ for component in core jobservice; do
     fi
 done
 
+# Detect the Node build image Harbor pins in its Makefile (NODEBUILDIMAGE=node:X.Y.Z)
+# so the portal's Angular build uses a compatible Node; recent Angular requires
+# Node >= 20. Fall back to the configured default if detection fails.
+NODE_BUILD_VERSION=$(sed -nE 's/^[[:space:]]*NODEBUILDIMAGE[[:space:]]*[:?+]?=[[:space:]]*node:([^[:space:]#]+).*/\1/p' Makefile | head -n 1)
+if [ -z "${NODE_BUILD_VERSION}" ]; then
+    NODE_BUILD_VERSION="${BUILD_CONFIG_NODE_VERSION}"
+    log_warning "Could not detect NODEBUILDIMAGE from Harbor Makefile; using configured Node ${NODE_BUILD_VERSION}"
+else
+    log_info "Using Harbor-required Node build image: node:${NODE_BUILD_VERSION}"
+fi
+
+
 # Build portal with NODE argument
 log_info "Building portal..."
 if docker build \
     --build-arg harbor_base_namespace=${BUILD_CONFIG_HARBOR_BASE_NAMESPACE} \
     --build-arg harbor_base_image_version=${VERSION} \
-    --build-arg NODE=node:${BUILD_CONFIG_NODE_VERSION} \
+    --build-arg NODE=node:${NODE_BUILD_VERSION} \
     -t armbuild/harbor-portal:${VERSION_TAG} \
     -f make/photon/portal/Dockerfile \
     .; then
